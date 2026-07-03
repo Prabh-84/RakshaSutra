@@ -36,9 +36,12 @@ const roleColors = {
   telecom_operator: '#7c4dff',
 };
 
+import ProfileModal from './ProfileModal';
+
 export default function Sidebar() {
   const { user, logout } = useAuth();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
   let currentSection = '';
 
   const avatarColor = user ? roleColors[user.role] || '#4a90d9' : '#4a90d9';
@@ -133,17 +136,21 @@ export default function Sidebar() {
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{user.email}</div>
               </div>
               <div style={{ padding: '8px' }}>
-                <button className="dropdown-item-btn">Profile Settings</button>
-                <button className="dropdown-item-btn">Preferences</button>
+                <button className="dropdown-item-btn" onClick={() => { setShowProfileMenu(false); setShowProfileModal(true); }}>Profile Settings</button>
+                <button className="dropdown-item-btn" onClick={() => { setShowProfileMenu(false); setShowProfileModal(true); }}>Preferences</button>
               </div>
               <div style={{ padding: '8px', borderTop: '1px solid var(--border-subtle)' }}>
-                <button className="dropdown-item-btn" style={{ color: 'var(--status-danger)' }} onClick={logout}>
+                <button className="dropdown-item-btn" style={{ color: 'var(--status-danger)' }} onClick={() => { setShowProfileMenu(false); logout(); }}>
                   Sign Out
                 </button>
               </div>
             </div>
           )}
         </div>
+      )}
+      
+      {showProfileModal && (
+        <ProfileModal onClose={() => setShowProfileModal(false)} />
       )}
     </aside>
   );

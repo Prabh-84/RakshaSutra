@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { MapPin, Filter, TrendingUp, AlertTriangle, Layers } from 'lucide-react';
-import { crimeEvents, crimeTypeConfig, stateStats } from '../data/crimeEvents';
+import { MapPin, Filter, TrendingUp, AlertTriangle, Layers, Loader } from 'lucide-react';
+import { crimeTypeConfig, stateStats } from '../data/crimeEvents';
+import { getCrimeEvents } from '../services/api';
 
 export default function CrimeMap() {
   const mapRef = useRef(null);
@@ -12,6 +13,33 @@ export default function CrimeMap() {
   const [mapReady, setMapReady] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [timeRange, setTimeRange] = useState(90);
+  
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Load events
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      try {
+        const res = await getCrimeEvents();
+        // Normalize API data to match UI expectations if it comes from backend
+        const normalized = res.events.map(e => ({
+          ...e,
+          type: e.type.toLowerCase(), // UPI_Fraud -> upi_fraud
+          severity: typeof e.severity === 'number' ? e.severity : (e.severity === 'CRITICAL' ? 5 : e.severity === 'HIGH' ? 4 : e.severity === 'MEDIUM' ? 3 : 2),
+          date: e.date || e.timestamp,
+          lossAmount: e.lossAmount || e.loss_amount
+        }));
+        setEvents(normalized);
+      } catch (err) {
+        console.error('Failed to load crime events', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
 
   useEffect(() => {
     if (mapInstanceRef.current) return;
@@ -55,7 +83,7 @@ export default function CrimeMap() {
   }, []);
 
   useEffect(() => {
-    if (!mapReady || !mapInstanceRef.current || !leafletRef.current) return;
+    if (!mapReady || !mapInstanceRef.current || !leafletRef.current || events.length === 0) return;
 
     const L = leafletRef.current;
     const map = mapInstanceRef.current;
@@ -71,7 +99,7 @@ export default function CrimeMap() {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - timeRange);
 
-    const filtered = crimeEvents.filter(e =>
+    const filtered = events.filter(e =>
       selectedTypes.includes(e.type) &&
       new Date(e.date) >= cutoffDate
     );

@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 
 export default function Login({ onSwitchToSignup }) {
-  const { login, isLoading, DEMO_USERS } = useAuth();
+  const { login, isLoading } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -181,49 +181,7 @@ export default function Login({ onSwitchToSignup }) {
               </button>
             </form>
 
-            {/* Demo accounts */}
-            <div className="auth-demo-section">
-              <button
-                className="auth-demo-toggle"
-                onClick={() => setShowDemo(!showDemo)}
-              >
-                <BadgeCheck size={14} />
-                <span>Quick Demo Login</span>
-                <ChevronRight size={14} style={{
-                  transform: showDemo ? 'rotate(90deg)' : 'rotate(0)',
-                  transition: 'transform 200ms',
-                }} />
-              </button>
 
-              {showDemo && (
-                <div className="auth-demo-grid">
-                  {DEMO_USERS.map(user => {
-                    const rc = roleConfig[user.role];
-                    return (
-                      <button
-                        key={user.id}
-                        className="auth-demo-card"
-                        onClick={() => handleDemoLogin(user)}
-                        disabled={isLoading}
-                      >
-                        <div className="auth-demo-avatar" style={{
-                          background: `linear-gradient(135deg, ${rc.color}, ${rc.color}88)`,
-                        }}>
-                          {user.avatar}
-                        </div>
-                        <div className="auth-demo-info">
-                          <div className="auth-demo-name">{user.name}</div>
-                          <div className="auth-demo-role">
-                            <span>{rc.icon}</span> {rc.label}
-                          </div>
-                        </div>
-                        <ArrowRight size={14} className="auth-demo-arrow" />
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
 
             <div className="auth-form-footer">
               <span>Don't have an account?</span>

@@ -4,7 +4,7 @@
 
 Project Name: RakshaSutra
 Theme: Smart Cities / Public Safety / Digital Trust / Geospatial Law Enforcement
-Description: AI-Powered Digital Public Safety Platform (Frontend Prototype)
+Description: AI-Powered Digital Public Safety Platform (Frontend-only Prototype using Simulated Mock Data)
 Repository: https://github.com/Prabh-84/RakshaSutra.git
 
 ------------------------------------------------------------------------
@@ -15,6 +15,11 @@ fraud, counterfeiting, digital arrest scams, and network-based financial
 crimes. Built using React, Vite, Leaflet, D3.js, and Chart.js, it uses a 
 highly interactive, glassmorphism-themed dark-mode UI to present deep
 intelligence insights suitable for a national-level hackathon.
+
+NOTE ON DATA: This platform is a frontend-only interactive demonstration.
+All AI analysis, transaction networks, geospatial incidents, and verification
+reports are simulated using pre-configured mock data (JSON fixtures) to showcase
+real-world UI flows and mock integration capabilities without live backend APIs.
 
 ------------------------------------------------------------------------
 2. SYSTEM ARCHITECTURE & COMPONENTS DEFINED
@@ -89,6 +94,44 @@ intelligence insights suitable for a national-level hackathon.
 - Upgraded sidebar profile card: Made it clickable. It toggles a popover containing profile information, settings shortcuts, and a Sign Out trigger.
 - Verified final build passes compile checks with Rolldown/Vite with zero errors.
 - Pushed complete workspace repository files to GitHub branch `main`.
+
+[STEP 8] Node.js/Express Backend Created (rakshasutra-backend/)
+- Created full Express.js backend at C:\Users\LENOVO\Desktop\ET\rakshasutra-backend\
+- Server runs on http://localhost:3000 and accepts requests from frontend on http://localhost:5173 (CORS configured)
+- Project follows MVC pattern: routes → controllers → services
+
+ENDPOINTS BUILT:
+  POST /api/v1/currency/analyse   - NoteSure: Accepts JPG/PNG via Multer, returns verdict, confidence, flagged_regions
+  POST /api/v1/fraud/analyse      - FraudGraph: Accepts CSV via Multer, returns cluster risk tiers and node/edge lists
+  POST /api/v1/chat/message       - NagrikShield: Fully live via Anthropic Claude API (claude-sonnet-4-6)
+  GET  /api/v1/crime/events       - CrimeMap: 30 hardcoded events across 20+ cities, filterable by state/type/severity
+  POST /api/v1/scam/analyse       - Scam Sentinel: Keyword classifier across 4 scam categories, returns verdict + flagged phrases
+  GET  /health                    - Returns server status, version and module list
+
+NOTE ON DATA: Services are currently STUBS (return hardcoded JSON). Only /chat/message is live (requires ANTHROPIC_API_KEY in .env).
+Each service.js has a clear "// TODO: Replace with real model" comment for ML teammate handoff.
+
+FILES CREATED:
+  src/index.js                        ← App entry point
+  src/routes/ (5 files)               ← Route definitions
+  src/controllers/ (5 files)          ← HTTP layer
+  src/services/ (5 files)             ← Business logic / stubs
+  src/middleware/upload.middleware.js  ← Multer (image 10MB + CSV 50MB)
+  src/middleware/error.middleware.js   ← Global error handler
+  .env / .env.example                 ← Environment config
+  README.md                           ← Full API docs with curl examples
+
+VERIFIED: Server starts successfully, /health returns 200, /scam/analyse correctly flags "CBI + digital arrest" as confirmed_scam, /crime/events filters by state correctly.
+
+[STEP 9] Professional Level App Refinements & Global API Integration
+- Secured React/Vite Frontend with `api.js` client layer handling real backend REST requests and `VITE_USE_MOCK` boolean fallbacks.
+- Integrated `NagrikShield` bot to send actual real-time chat messages to the backend API via API Client.
+- Upgraded `NoteSure` page with live native HTML `<input type="file" />` that calls Multer-backed `/currency/analyse` endpoint handling real JPG/PNG scans. Added animated loader overlay.
+- Upgraded `ScamSentinel` page to submit ASR transcripts to `/scam/analyse` endpoint and merge risk assessments, flags, and sub-score confidences seamlessly.
+- Upgraded `CrimeMap` page to hydrate map points dynamically via `/crime/events` backend GET request and normalize API shapes for UI plotting.
+- Upgraded `FraudGraph` page to include CSV file upload integration interacting with `/fraud/analyse` endpoint to parse network clusters/edges.
+- Finalized production-grade `index.html` structure with robust SEO (Meta titles, Open Graph descriptions) and hardened Security Headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`).
+- Fixed Rolldown (Vite 8) chunk splitting bug ensuring the app builds safely via `npm run build`. Build successful.
 
 ========================================================================
                       END OF PROGRESS TRACKER

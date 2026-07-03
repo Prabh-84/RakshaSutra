@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import {
   Banknote, Camera, CheckCircle, XCircle, AlertTriangle,
-  ScanLine, FileCheck, Shield
+  ScanLine, FileCheck, Shield, Upload, Loader
 } from 'lucide-react';
 import { sampleScans, currencyDenominations } from '../data/currencyData';
 import ConfidenceGauge from '../components/ConfidenceGauge';
 import StatusBadge from '../components/StatusBadge';
+import { analyseCurrencyImage, APIError } from '../services/api';
+
 
 function FeatureResult({ name, data }) {
   const statusIcon = {
@@ -59,32 +61,48 @@ export default function NoteSure() {
   const [selectedScan, setSelectedScan] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [scanPhase, setScanPhase] = useState('');
+  const [uploadError, setUploadError] = useState(null);
+  const [apiResult, setApiResult] = useState(null);
+  const fileInputRef = useRef(null);
 
-  const handleScan = (scan) => {
+  const runScanPhases = (onComplete) => {
     setScanning(true);
     setSelectedScan(null);
+    setApiResult(null);
     const phases = [
-      'Aligning image...',
-      'Classifying denomination...',
-      'Extracting security zones...',
-      'Analysing microprint...',
-      'Verifying security thread...',
-      'Checking watermark...',
-      'Validating serial number...',
-      'Estimating UV response...',
-      'Computing final verdict...',
+      'Aligning image...', 'Classifying denomination...', 'Extracting security zones...',
+      'Analysing microprint...', 'Verifying security thread...', 'Checking watermark...',
+      'Validating serial number...', 'Estimating UV response...', 'Computing final verdict...',
     ];
     let i = 0;
-    const phaseInterval = setInterval(() => {
-      if (i < phases.length) {
-        setScanPhase(phases[i]);
-        i++;
-      } else {
-        clearInterval(phaseInterval);
-        setScanning(false);
-        setSelectedScan(scan);
-      }
+    const interval = setInterval(() => {
+      if (i < phases.length) { setScanPhase(phases[i]); i++; }
+      else { clearInterval(interval); onComplete(); }
     }, 300);
+  };
+
+  const handleScan = (scan) => {
+    setUploadError(null);
+    runScanPhases(() => { setScanning(false); setSelectedScan(scan); });
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadError(null);
+
+    runScanPhases(async () => {
+      try {
+        const result = await analyseCurrencyImage(file);
+        setScanning(false);
+        // Convert API result to UI-compatible shape
+        setApiResult(result);
+        setSelectedScan(null);
+      } catch (err) {
+        setScanning(false);
+        setUploadError(err instanceof APIError ? err.message : 'Upload failed. Please try again.');
+      }
+    });
   };
 
   const verdictColors = {
@@ -148,6 +166,30 @@ export default function NoteSure() {
               <ScanLine size={16} style={{ color: 'var(--accent-blue)' }} />
               Sample Scans
             </h4>
+
+            {/* Upload your own image */}
+            <input
+              type="file"
+              accept="image/jpeg,image/png"
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+              onChange={handleFileUpload}
+            />
+            <button
+              className="btn btn-secondary"
+              style={{ width: '100%', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={scanning}
+            >
+              {scanning ? <Loader size={14} className="spin" /> : <Upload size={14} />}
+              {scanning ? 'Analysing...' : 'Upload Currency Image'}
+            </button>
+            {uploadError && (
+              <div style={{ fontSize: '0.78rem', color: 'var(--status-danger)', marginBottom: 10, padding: '8px 12px', background: 'rgba(239,83,80,0.08)', borderRadius: 'var(--radius-sm)' }}>
+                ⚠️ {uploadError}
+              </div>
+            )}
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {sampleScans.map((scan) => (
                 <div

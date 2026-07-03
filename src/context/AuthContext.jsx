@@ -1,94 +1,81 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { loginApi, signupApi, getProfileApi } from '../services/api';
 
 const AuthContext = createContext(null);
 
-// Demo users for the prototype
-const DEMO_USERS = [
-  {
-    id: 'usr-001',
-    name: 'Inspector Meera Sharma',
-    email: 'meera@mha.gov.in',
-    password: 'admin123',
-    role: 'national_admin',
-    designation: 'Senior Intelligence Analyst',
-    unit: 'MHA — I4C National Command',
-    avatar: 'MS',
-    clearanceLevel: 'TOP SECRET',
-  },
-  {
-    id: 'usr-002',
-    name: 'Analyst Ravi Kumar',
-    email: 'ravi@cybercell.gov.in',
-    password: 'admin123',
-    role: 'state_officer',
-    designation: 'Cyber Crime Cell Officer',
-    unit: 'Maharashtra Police — Cyber Cell',
-    avatar: 'RK',
-    clearanceLevel: 'CONFIDENTIAL',
-  },
-  {
-    id: 'usr-003',
-    name: 'Teller Priya Menon',
-    email: 'priya@sbi.co.in',
-    password: 'admin123',
-    role: 'bank_operator',
-    designation: 'Branch Operations Manager',
-    unit: 'State Bank of India — Mumbai HQ',
-    avatar: 'PM',
-    clearanceLevel: 'INTERNAL',
-  },
-];
-
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Initialize session on load
+  useEffect(() => {
+    const initAuth = async () => {
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        try {
+          const res = await getProfileApi();
+          if (res.success) {
+            setUser(res.user);
+          } else {
+            localStorage.removeItem('auth_token');
+          }
+        } catch (err) {
+          localStorage.removeItem('auth_token');
+        }
+      }
+      setIsLoading(false);
+    };
+    initAuth();
+  }, []);
 
   const login = useCallback(async (email, password) => {
     setIsLoading(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    const found = DEMO_USERS.find(
-      u => u.email.toLowerCase() === email.toLowerCase() && u.password === password
-    );
-
-    if (found) {
-      const { password: _, ...safeUser } = found;
-      setUser(safeUser);
+    try {
+      const res = await loginApi(email, password);
+      if (res.success && res.token) {
+        localStorage.setItem('auth_token', res.token);
+        setUser(res.user);
+        setIsLoading(false);
+        return { success: true, user: res.user };
+      }
       setIsLoading(false);
-      return { success: true, user: safeUser };
+      return { success: false, error: 'Login failed' };
+    } catch (err) {
+      setIsLoading(false);
+      return { success: false, error: err.message || 'Invalid credentials' };
     }
-
-    setIsLoading(false);
-    return { success: false, error: 'Invalid credentials. Use any demo account with password: admin123' };
   }, []);
 
   const signup = useCallback(async (userData) => {
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    const newUser = {
-      id: `usr-${Date.now()}`,
-      name: userData.name,
-      email: userData.email,
-      role: userData.role || 'state_officer',
-      designation: userData.designation || 'Field Officer',
-      unit: userData.unit || 'Assigned on onboarding',
-      avatar: userData.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase(),
-      clearanceLevel: 'INTERNAL',
-    };
-
-    setUser(newUser);
-    setIsLoading(false);
-    return { success: true, user: newUser };
+    try {
+      const res = await signupApi(userData);
+      if (res.success && res.token) {
+        localStorage.setItem('auth_token', res.token);
+        setUser(res.user);
+        setIsLoading(false);
+        return { success: true, user: res.user };
+      }
+      setIsLoading(false);
+      return { success: false, error: 'Signup failed' };
+    } catch (err) {
+      setIsLoading(false);
+      return { success: false, error: err.message || 'Signup failed' };
+    }
   }, []);
 
   const logout = useCallback(() => {
+    localStorage.removeItem('auth_token');
     setUser(null);
   }, []);
 
+  // Method to manually update user state when profile is edited
+  const updateUserState = useCallback((newUserData) => {
+    setUser(prev => ({ ...prev, ...newUserData }));
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, login, signup, logout, isLoading, DEMO_USERS }}>
+    <AuthContext.Provider value={{ user, login, signup, logout, isLoading, updateUserState }}>
       {children}
     </AuthContext.Provider>
   );

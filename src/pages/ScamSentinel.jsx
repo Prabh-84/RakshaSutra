@@ -6,6 +6,7 @@ import {
 import { scamSessions } from '../data/scamSessions';
 import ConfidenceGauge from '../components/ConfidenceGauge';
 import StatusBadge from '../components/StatusBadge';
+import { analyseScamTranscript, APIError } from '../services/api';
 
 function ScoreBar({ label, score, icon }) {
   const getColor = (s) => {
@@ -39,14 +40,41 @@ function ScoreBar({ label, score, icon }) {
 export default function ScamSentinel() {
   const [selectedSession, setSelectedSession] = useState(scamSessions[0]);
   const [analyzing, setAnalyzing] = useState(false);
+  const [apiError, setApiError] = useState(null);
 
-  const handleSelect = (session) => {
+  const handleSelect = async (session) => {
     setAnalyzing(true);
     setSelectedSession(null);
-    setTimeout(() => {
+    setApiError(null);
+    
+    try {
+      const result = await analyseScamTranscript({
+        transcript: session.transcript,
+        caller_id: session.caller,
+        session_id: session.id,
+      });
+      
+      // Merge API results with the local session details for UI display
+      setSelectedSession({
+        ...session,
+        verdict: result.verdict === 'confirmed_scam' ? 'SCAM_DETECTED' : result.verdict === 'suspect' ? 'SUSPICIOUS' : 'SAFE',
+        confidence: result.confidence,
+        keyPhrases: result.flagged_phrases || [],
+        scamCategory: result.scam_type ? result.scam_type.replace('_', ' ').toUpperCase() : session.scamCategory,
+        // Modify subscores slightly based on API confidence
+        subScores: {
+          ...session.subScores,
+          scriptMatch: result.confidence
+        },
+        recommendedActions: result.recommended_action ? [result.recommended_action, 'BLOCK_CALLER'] : session.recommendedActions
+      });
+    } catch (err) {
+      setApiError(err instanceof APIError ? err.message : 'Analysis failed.');
+      // Fallback to local data
       setSelectedSession(session);
+    } finally {
       setAnalyzing(false);
-    }, 1800);
+    }
   };
 
   const formatDuration = (secs) => {
@@ -146,6 +174,11 @@ export default function ScamSentinel() {
             </div>
           ) : selectedSession ? (
             <div className="animate-fadeInUp" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {apiError && (
+                <div style={{ fontSize: '0.85rem', color: 'var(--status-danger)', padding: '10px 14px', background: 'rgba(239,83,80,0.08)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(239,83,80,0.2)' }}>
+                  ⚠️ {apiError} (Showing fallback data)
+                </div>
+              )}
               {/* Verdict Header */}
               <div className="glass-card-static" style={{
                 background: selectedSession.verdict === 'SCAM_DETECTED' ? 'rgba(239, 83, 80, 0.06)' :

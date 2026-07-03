@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   MessageCircleWarning, Send, Globe, Shield, AlertTriangle,
-  CheckCircle, XCircle, Phone, FileText
+  CheckCircle, XCircle, Phone, FileText, Wifi, WifiOff
 } from 'lucide-react';
 import { chatScenarios, supportedLanguages } from '../data/chatScenarios';
+import { sendChatMessage, APIError } from '../services/api';
+
 
 function VerdictCard({ verdict }) {
   const levelConfig = {
@@ -61,6 +63,7 @@ function VerdictCard({ verdict }) {
 }
 
 export default function NagrikShield() {
+  const sessionId = useRef(`sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
   const [messages, setMessages] = useState([
     {
       type: 'bot',
@@ -70,6 +73,7 @@ export default function NagrikShield() {
   const [input, setInput] = useState('');
   const [typing, setTyping] = useState(false);
   const [selectedLang, setSelectedLang] = useState('en');
+  const [apiError, setApiError] = useState(null);
   const chatEndRef = useRef(null);
   const [activeScenario, setActiveScenario] = useState(null);
   const scenarioStepRef = useRef(0);
@@ -81,26 +85,16 @@ export default function NagrikShield() {
   const processScenario = (scenario) => {
     setActiveScenario(scenario);
     scenarioStepRef.current = 0;
-
-    // Add user message
     setMessages(prev => [...prev, { type: 'user', text: scenario.trigger }]);
 
-    // Process steps sequentially
     let delay = 500;
-    scenario.steps.forEach((step, i) => {
+    scenario.steps.forEach((step) => {
       delay += step.delay || 1000;
-
       if (step.type === 'bot') {
-        // Show typing
         setTimeout(() => setTyping(true), delay - 600);
-
         setTimeout(() => {
           setTyping(false);
-          setMessages(prev => [...prev, {
-            type: 'bot',
-            text: step.text,
-            verdict: step.verdict || null,
-          }]);
+          setMessages(prev => [...prev, { type: 'bot', text: step.text, verdict: step.verdict || null }]);
         }, delay);
       } else if (step.type === 'user_auto') {
         setTimeout(() => {
@@ -110,35 +104,45 @@ export default function NagrikShield() {
     });
   };
 
-  const handleSend = () => {
-    if (!input.trim()) return;
+  const handleSend = async () => {
+    const trimmed = input.trim();
+    if (!trimmed || typing) return;
 
-    setMessages(prev => [...prev, { type: 'user', text: input }]);
     setInput('');
+    setApiError(null);
+    setMessages(prev => [...prev, { type: 'user', text: trimmed }]);
+    setTyping(true);
 
-    // Simple keyword matching for free text
-    const lowerInput = input.toLowerCase();
-    const matchedScenario = chatScenarios.find(s =>
-      s.trigger.toLowerCase().split(' ').some(word =>
-        lowerInput.includes(word) && word.length > 3
-      )
-    );
+    try {
+      const result = await sendChatMessage({
+        message: trimmed,
+        language: selectedLang,
+        session_id: sessionId.current,
+      });
 
-    if (matchedScenario) {
-      setTimeout(() => setTyping(true), 300);
-      setTimeout(() => {
-        setTyping(false);
-        processScenario(matchedScenario);
-      }, 1200);
-    } else {
-      setTimeout(() => setTyping(true), 300);
-      setTimeout(() => {
-        setTyping(false);
-        setMessages(prev => [...prev, {
-          type: 'bot',
-          text: '🤔 I understand you have a concern. To provide the most accurate assessment, could you:\n\n1. Select one of the quick scenarios below, OR\n2. Describe what happened in more detail — mention keywords like "call", "OTP", "UPI", "arrest", "parcel", or "bank"\n\nI\'m here to help keep you safe! 🛡️',
-        }]);
-      }, 1500);
+      setTyping(false);
+
+      // Map API verdict to UI verdict card format
+      const verdictMap = {
+        danger: { level: 'danger', title: '🚨 HIGH RISK — Likely Scam', details: result.response, confidence: result.confidence, actions: result.helpline ? [`📞 Call ${result.helpline} immediately`, '✅ Do NOT follow caller instructions', '✅ Disconnect the call now'] : ['Stay vigilant', 'Do not share personal information'] },
+        suspicious: { level: 'warning', title: '⚠️ Suspicious Activity Detected', details: result.response, confidence: result.confidence, actions: result.helpline ? [`📞 Report to ${result.helpline} if needed`, '✅ Do NOT share OTP or PIN', '✅ Verify through official channels only'] : ['Proceed with caution', 'Do not share OTP'] },
+        safe: { level: 'safe', title: '✅ No Threat Detected', details: result.response, confidence: result.confidence, actions: ['Stay alert for future messages', 'Never share OTP with anyone'] },
+      };
+
+      const verdict = verdictMap[result.risk_verdict];
+
+      setMessages(prev => [...prev, {
+        type: 'bot',
+        text: result.response,
+        verdict: verdict || null,
+      }]);
+    } catch (err) {
+      setTyping(false);
+      const errMsg = err instanceof APIError
+        ? `⚠️ ${err.message}`
+        : '⚠️ Unable to connect to the AI assistant. Please check your connection and try again.';
+      setApiError(errMsg);
+      setMessages(prev => [...prev, { type: 'bot', text: errMsg }]);
     }
   };
 

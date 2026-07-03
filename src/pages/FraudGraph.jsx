@@ -1,15 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { Network, Filter, FileText, ZoomIn, ZoomOut, Maximize } from 'lucide-react';
+import { Network, Filter, FileText, ZoomIn, ZoomOut, Maximize, Upload, Loader } from 'lucide-react';
 import { fraudNetworkNodes, fraudNetworkEdges, nodeTypeConfig, clusterInfo } from '../data/fraudNetwork';
 import StatusBadge from '../components/StatusBadge';
+import { analyseFraudCSV, APIError } from '../services/api';
 
 export default function FraudGraph() {
   const svgRef = useRef();
   const containerRef = useRef();
+  const fileInputRef = useRef();
   const [selectedNode, setSelectedNode] = useState(null);
   const [filterType, setFilterType] = useState('all');
   const [showPackage, setShowPackage] = useState(false);
+  const [nodes, setNodes] = useState(fraudNetworkNodes);
+  const [edges, setEdges] = useState(fraudNetworkEdges);
+  const [clusters, setClusters] = useState(clusterInfo);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
   const simulationRef = useRef(null);
 
   useEffect(() => {
@@ -34,11 +41,11 @@ export default function FraudGraph() {
     svg.call(zoom);
 
     let filteredNodes = filterType === 'all'
-      ? [...fraudNetworkNodes]
-      : fraudNetworkNodes.filter(n => n.type === filterType || n.cluster === 0);
+      ? [...nodes]
+      : nodes.filter(n => n.type === filterType || n.cluster === 0);
 
     const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
-    let filteredEdges = fraudNetworkEdges.filter(
+    let filteredEdges = edges.filter(
       e => filteredNodeIds.has(e.source) && filteredNodeIds.has(e.target)
     );
 
@@ -156,7 +163,62 @@ export default function FraudGraph() {
     });
 
     return () => simulation.stop();
-  }, [filterType]);
+  }, [filterType, nodes, edges]); // Added nodes and edges to dependencies
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadError(null);
+    setAnalyzing(true);
+    setSelectedNode(null);
+
+    try {
+      const result = await analyseFraudCSV(file);
+      const newNodes = [];
+      const newEdges = [];
+      const newClusters = [];
+
+      result.clusters.forEach((c, index) => {
+        const clusterId = index + 1; // Map C001, C002 to 1, 2...
+        newClusters.push({
+          id: clusterId,
+          name: c.cluster_id,
+          status: c.risk_tier === 'HIGH' ? 'SCAM_DETECTED' : c.risk_tier === 'MEDIUM' ? 'SUSPICIOUS' : 'SAFE',
+          suspects: c.node_count,
+          victims: 0, // Fallback if API doesn't specify
+          estimatedLoss: `₹${(c.edge_count * 50000 / 100000).toFixed(1)}L`, // Mock estimate
+        });
+
+        c.nodes.forEach(n => {
+          newNodes.push({
+            id: n.id,
+            label: n.label,
+            type: n.type, // 'account', 'sim', 'phone'
+            riskScore: n.risk_score || 0.5,
+            cluster: clusterId,
+          });
+        });
+
+        c.edges.forEach(edge => {
+          newEdges.push({
+            source: edge.source,
+            target: edge.target,
+            type: edge.type, // 'TRANSFER', 'LINKED'
+            value: edge.amount,
+          });
+        });
+      });
+
+      setNodes(newNodes);
+      setEdges(newEdges);
+      setClusters(newClusters);
+    } catch (err) {
+      setUploadError(err instanceof APIError ? err.message : 'Upload failed. Please try again.');
+    } finally {
+      setAnalyzing(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   return (
     <div className="animate-fadeIn">
@@ -171,11 +233,32 @@ export default function FraudGraph() {
           </p>
         </div>
         <div className="flex items-center gap-sm">
+          <input
+            type="file"
+            accept=".csv"
+            ref={fileInputRef}
+            style={{ display: 'none' }}
+            onChange={handleFileUpload}
+          />
+          <button 
+            className="btn btn-sm btn-primary" 
+            onClick={() => fileInputRef.current?.click()}
+            disabled={analyzing}
+          >
+            {analyzing ? <Loader size={14} className="spin" /> : <Upload size={14} />}
+            {analyzing ? 'Analyzing CSV...' : 'Upload Bank CSV'}
+          </button>
           <button className="btn btn-sm btn-secondary" onClick={() => setShowPackage(true)}>
             <FileText size={14} /> Generate Intelligence Package
           </button>
         </div>
       </div>
+      
+      {uploadError && (
+        <div style={{ fontSize: '0.85rem', color: 'var(--status-danger)', padding: '10px 14px', background: 'rgba(239,83,80,0.08)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(239,83,80,0.2)', marginBottom: '16px' }}>
+          ⚠️ {uploadError}
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20, height: 'calc(100vh - 180px)' }}>
         {/* Graph */}
@@ -241,7 +324,7 @@ export default function FraudGraph() {
                 <div className="feature-score-row">
                   <span className="feature-score-label">Connections</span>
                   <span className="feature-score-value">
-                    {fraudNetworkEdges.filter(e =>
+                    {edges.filter(e =>
                       e.source === selectedNode.id || e.target === selectedNode.id ||
                       e.source?.id === selectedNode.id || e.target?.id === selectedNode.id
                     ).length}
@@ -276,7 +359,7 @@ export default function FraudGraph() {
           <div className="glass-card-static">
             <h4 style={{ fontSize: '0.85rem', marginBottom: 10 }}>Detected Fraud Rings</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {clusterInfo.map(c => (
+              {clusters.map(c => (
                 <div key={c.id} style={{
                   padding: '10px 12px',
                   background: 'var(--bg-tertiary)',
@@ -331,7 +414,7 @@ export default function FraudGraph() {
     estimated_loss_inr: 42300000,
     jurisdictions: ["MH", "DL", "KA", "TG"],
   },
-  suspects: clusterInfo[0].suspects,
+  suspects: clusters[0]?.suspects || 0,
   evidence_hash: "sha256:e3b0c44298fc1c149afbf4c8996fb924...",
   section_65b_compliant: true,
 }, null, 2)}
@@ -346,3 +429,4 @@ export default function FraudGraph() {
     </div>
   );
 }
+
