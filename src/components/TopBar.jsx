@@ -16,6 +16,7 @@ const pageNames = {
 export default function TopBar() {
   const { user, logout } = useAuth();
   const [time, setTime] = useState(new Date());
+  const [showNotifications, setShowNotifications] = useState(false);
   const location = useLocation();
 
   useEffect(() => {
@@ -78,10 +79,52 @@ export default function TopBar() {
           <Search size={18} />
         </button>
 
-        <button className="topbar-btn" title="Notifications">
-          <Bell size={18} />
-          <span className="notif-dot" />
-        </button>
+        <div style={{ position: 'relative' }}>
+          <button 
+            className="topbar-btn" 
+            title="Notifications"
+            onClick={() => setShowNotifications(!showNotifications)}
+          >
+            <Bell size={18} />
+            <span className="notif-dot" />
+          </button>
+          
+          {showNotifications && (
+            <div className="dropdown-menu animate-fadeInUp" style={{ right: 0, top: '40px', width: '320px' }}>
+              <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Notifications</span>
+                <span className="badge badge-danger">2 New</span>
+              </div>
+              <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                <div className="dropdown-item" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--status-danger)', marginTop: 6, flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>Scam Alert Surge</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 4 }}>47 NagrikShield queries about 'customs parcel scam' in Tamil Nadu in the last hour.</div>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 6 }}>Just now</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="dropdown-item">
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent-blue)', marginTop: 6, flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>Known FICN Batch Match</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 4 }}>₹500 note serial 9BQ 234XXX matches RBI flagged FICN series.</div>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 6 }}>2 mins ago</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div style={{ padding: '10px', textAlign: 'center', borderTop: '1px solid var(--border-subtle)' }}>
+                <button style={{ background: 'none', border: 'none', color: 'var(--accent-blue)', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 500 }}>
+                  Mark all as read
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
 
         <button className="topbar-btn" title="Sign Out" onClick={logout} style={{ color: 'var(--status-danger)' }}>
           <LogOut size={18} />

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -36,7 +37,8 @@ const roleColors = {
 };
 
 export default function Sidebar() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
   let currentSection = '';
 
   const avatarColor = user ? roleColors[user.role] || '#4a90d9' : '#4a90d9';
@@ -84,36 +86,63 @@ export default function Sidebar() {
       </nav>
 
       {user && (
-        <div style={{
-          padding: '16px',
-          borderTop: '1px solid var(--border-subtle)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-        }}>
-          <div style={{
-            width: 32,
-            height: 32,
-            borderRadius: 'var(--radius-full)',
-            background: `linear-gradient(135deg, ${avatarColor}, ${avatarColor}aa)`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '0.75rem',
-            fontWeight: 700,
-            color: '#fff',
-            flexShrink: 0,
-          }}>
-            {user.avatar}
+        <div style={{ position: 'relative' }}>
+          <div 
+            onClick={() => setShowProfileMenu(!showProfileMenu)}
+            style={{
+              padding: '16px',
+              borderTop: '1px solid var(--border-subtle)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              cursor: 'pointer',
+              transition: 'background 200ms',
+            }}
+            onMouseOver={(e) => e.currentTarget.style.background = 'var(--bg-glass-hover)'}
+            onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+          >
+            <div style={{
+              width: 32,
+              height: 32,
+              borderRadius: 'var(--radius-full)',
+              background: `linear-gradient(135deg, ${avatarColor}, ${avatarColor}aa)`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              color: '#fff',
+              flexShrink: 0,
+            }}>
+              {user.avatar}
+            </div>
+            <div className="brand-text" style={{ minWidth: 0 }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {user.name}
+              </span>
+              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {user.unit}
+              </span>
+            </div>
           </div>
-          <div className="brand-text" style={{ minWidth: 0 }}>
-            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {user.name}
-            </span>
-            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {user.unit}
-            </span>
-          </div>
+          
+          {showProfileMenu && (
+            <div className="dropdown-menu animate-fadeInUp" style={{ bottom: '70px', left: '16px', width: '220px' }}>
+              <div style={{ padding: '12px', borderBottom: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>{user.name}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{user.email}</div>
+              </div>
+              <div style={{ padding: '8px' }}>
+                <button className="dropdown-item-btn">Profile Settings</button>
+                <button className="dropdown-item-btn">Preferences</button>
+              </div>
+              <div style={{ padding: '8px', borderTop: '1px solid var(--border-subtle)' }}>
+                <button className="dropdown-item-btn" style={{ color: 'var(--status-danger)' }} onClick={logout}>
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </aside>
