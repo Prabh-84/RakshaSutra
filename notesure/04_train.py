@@ -177,12 +177,12 @@ def build_loaders(img_size: int, batch_size: int):
     note_groups = [g for g in group_ids if g.startswith("note:")]
     val_notes = sum(1 for g in note_groups if g in val_group_set)
     train_notes = len(note_groups) - val_notes
-    print(f"\n── Note-level split (leakage-free) ──")
+    print("\n── Note-level split (leakage-free) ──")
     print(f"  Source-note groups: {len(note_groups)} notes + "
           f"{len(group_ids) - len(note_groups)} independent images")
     print(f"  Train: {len(train_indices)} images ({train_notes} notes)")
     print(f"  Val:   {len(val_indices)} images ({val_notes} notes)")
-    print(f"  Note overlap between splits: 0 (by construction)\n")
+    print("  Note overlap between splits: 0 (by construction)\n")
 
     # 6. Separate ImageFolder instances → independent transforms
     #    (fixes the bug where val_ds.dataset.transform = val_tf silently
