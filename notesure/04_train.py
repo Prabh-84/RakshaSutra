@@ -18,6 +18,10 @@ Monitor:
 """
 
 import argparse
+import io
+import json
+import random
+from collections import defaultdict
 from pathlib import Path
 
 import os
@@ -26,14 +30,22 @@ import shutil
 import timm
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets, transforms
 from tqdm import tqdm
+from PIL import Image as PILImage
+from sklearn.metrics import classification_report, confusion_matrix
 
 DATA_ROOT = Path("notesure_data/processed")
 MODEL_OUT = Path("models")
 MODEL_OUT.mkdir(exist_ok=True)
+
+# Synthetic defect class names — must match 03_synthetic_defects.py DEFECTS dict.
+SYNTHETIC_CLASSES = frozenset({
+    'microprint_blur', 'print_quality_shift', 'serial_font_shift',
+    'thread_colorshift', 'thread_removed',
+})
 
 
 def link_or_copy(src: Path, dst: Path):
@@ -46,11 +58,32 @@ def link_or_copy(src: Path, dst: Path):
         shutil.copy2(src, dst)
 
 
+class RandomJPEGCompression:
+    """Re-encode through JPEG in memory at a random quality level.
+    Simulates the compression artifacts from phone-camera capture."""
+    def __init__(self, quality_range=(30, 85)):
+        self.quality_range = quality_range
+
+    def __call__(self, img):
+        quality = random.randint(*self.quality_range)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality)
+        buf.seek(0)
+        return PILImage.open(buf).convert("RGB")
+
+
 def build_loaders(img_size: int, batch_size: int):
     train_tf = transforms.Compose([
         transforms.Resize((img_size, img_size)),
         transforms.RandomHorizontalFlip(0.3),
-        transforms.ColorJitter(0.15, 0.15, 0.15, 0.02),
+        # Aggressive color jitter — covers the full range of phone-camera
+        # lighting/white-balance variation so the model can't confuse normal
+        # photographic artifacts with the print_quality_shift defect class.
+        transforms.ColorJitter(0.4, 0.4, 0.4, 0.1),
+        transforms.RandomPerspective(distortion_scale=0.15, p=0.3),
+        transforms.RandomRotation(degrees=8),
+        transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.5)),
+        RandomJPEGCompression(quality_range=(30, 85)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
@@ -60,9 +93,7 @@ def build_loaders(img_size: int, batch_size: int):
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
 
-    # ImageFolder expects: DATA_ROOT/<class_name>/*.jpg
-    # Flatten our nested structure (e.g. genuine/100/, synthetic_suspect/thread_removed/)
-    # into a single ImageFolder-compatible tree once, via symlinks:
+    # ── Flatten nested structure into ImageFolder-compatible tree ─────────
     flat_root = DATA_ROOT / "_flat"
     if not flat_root.exists():
         flat_root.mkdir()
@@ -90,11 +121,77 @@ def build_loaders(img_size: int, batch_size: int):
                         if not link.exists():
                             link_or_copy(img.resolve(), link)
 
-    full_ds = datasets.ImageFolder(str(flat_root), transform=train_tf)
-    n_val = max(1, int(0.15 * len(full_ds)))
-    n_train = len(full_ds) - n_val
-    train_ds, val_ds = torch.utils.data.random_split(full_ds, [n_train, n_val])
-    val_ds.dataset.transform = val_tf  # note: shared underlying dataset, fine for this scale
+    # ── Note-level train/val split (prevents data leakage) ───────────────
+    #
+    # Problem: random_split() assigns individual images independently, so a
+    # genuine note and its synthetic derivatives can land in different splits.
+    # This leaks note-specific textures into the val set, inflating accuracy.
+    #
+    # Fix: group all images derived from the same source note, then split
+    # at the GROUP level so every derivative stays in the same split.
+
+    # 1. Map genuine flat-filenames to their original stems
+    genuine_dir = DATA_ROOT / "genuine"
+    genuine_stem_map = {}  # flat_stem -> source_stem
+    if genuine_dir.exists():
+        for img in genuine_dir.rglob("*"):
+            if img.suffix.lower() in {".jpg", ".jpeg", ".png"}:
+                flat_stem = f"{img.parent.name}_{img.stem}"
+                genuine_stem_map[flat_stem] = img.stem
+
+    # 2. Load dataset for canonical class list and sample paths (no transform)
+    full_ds = datasets.ImageFolder(str(flat_root))
+
+    # 3. Group every image by its source note
+    source_groups = defaultdict(list)
+    for idx, (path, class_idx) in enumerate(full_ds.samples):
+        stem = Path(path).stem
+        class_name = full_ds.classes[class_idx]
+
+        if class_name == "genuine":
+            src = genuine_stem_map.get(stem, stem)
+            source_groups[f"note:{src}"].append(idx)
+        elif class_name in SYNTHETIC_CLASSES:
+            # Filename convention: {source_stem}_{defect_name}_{variant}
+            suffix = f"_{class_name}_"
+            pos = stem.rfind(suffix)
+            src = stem[:pos] if pos != -1 else stem
+            source_groups[f"note:{src}"].append(idx)
+        else:
+            # fake_kaggle, damaged — each file is independent
+            source_groups[f"indep:{class_name}:{stem}"].append(idx)
+
+    # 4. Deterministic split at the group level (seed=42 for reproducibility)
+    rng = random.Random(42)
+    group_ids = sorted(source_groups.keys())
+    rng.shuffle(group_ids)
+    n_val_groups = max(1, int(0.15 * len(group_ids)))
+    val_group_set = set(group_ids[:n_val_groups])
+
+    train_indices, val_indices = [], []
+    for gid in group_ids:
+        target = val_indices if gid in val_group_set else train_indices
+        target.extend(source_groups[gid])
+
+    # 5. Print split statistics
+    note_groups = [g for g in group_ids if g.startswith("note:")]
+    val_notes = sum(1 for g in note_groups if g in val_group_set)
+    train_notes = len(note_groups) - val_notes
+    print(f"\n── Note-level split (leakage-free) ──")
+    print(f"  Source-note groups: {len(note_groups)} notes + "
+          f"{len(group_ids) - len(note_groups)} independent images")
+    print(f"  Train: {len(train_indices)} images ({train_notes} notes)")
+    print(f"  Val:   {len(val_indices)} images ({val_notes} notes)")
+    print(f"  Note overlap between splits: 0 (by construction)\n")
+
+    # 6. Separate ImageFolder instances → independent transforms
+    #    (fixes the bug where val_ds.dataset.transform = val_tf silently
+    #    killed ALL training augmentation via the shared dataset reference)
+    train_base = datasets.ImageFolder(str(flat_root), transform=train_tf)
+    val_base = datasets.ImageFolder(str(flat_root), transform=val_tf)
+
+    train_ds = Subset(train_base, train_indices)
+    val_ds = Subset(val_base, val_indices)
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
                                num_workers=6, pin_memory=True, persistent_workers=True)
@@ -105,7 +202,7 @@ def build_loaders(img_size: int, batch_size: int):
     # imbalance (e.g. 39 fake_kaggle images vs ~9000 per synthetic class) —
     # otherwise the model learns to ignore rare-but-critical classes like
     # real fake-note samples.
-    train_targets = [full_ds.targets[i] for i in train_ds.indices]
+    train_targets = [full_ds.targets[i] for i in train_indices]
     class_counts = torch.bincount(torch.tensor(train_targets), minlength=len(full_ds.classes)).float()
     class_counts = torch.clamp(class_counts, min=1.0)
     # Full inverse-frequency weighting (dataset_size / (n_classes * count)) is
@@ -161,6 +258,7 @@ def main(args):
 
         model.eval()
         correct, total = 0, 0
+        all_preds, all_labels = [], []
         with torch.no_grad():
             for imgs, labels in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} [val]"):
                 imgs, labels = imgs.to(device), labels.to(device)
@@ -169,9 +267,20 @@ def main(args):
                 preds = out.argmax(dim=1)
                 correct += (preds == labels).sum().item()
                 total += labels.size(0)
+                all_preds.extend(preds.cpu().tolist())
+                all_labels.extend(labels.cpu().tolist())
         val_acc = correct / total
 
         print(f"Epoch {epoch+1}: train_loss={train_loss:.4f} val_acc={val_acc:.4f}")
+
+        # Per-class metrics — exposes class-level failures that overall accuracy hides
+        print(classification_report(
+            all_labels, all_preds, target_names=classes, zero_division=0
+        ))
+        cm = confusion_matrix(all_labels, all_preds)
+        print("Confusion matrix (rows=true, cols=pred):")
+        print(cm)
+
         writer.add_scalar("loss/train", train_loss, epoch)
         writer.add_scalar("acc/val", val_acc, epoch)
 
@@ -179,7 +288,9 @@ def main(args):
             best_acc = val_acc
             torch.save({"model_state": model.state_dict(), "classes": classes},
                        MODEL_OUT / "notesure_best.pt")
-            print(f"  -> new best, saved to {MODEL_OUT/'notesure_best.pt'}")
+            # Auto-save classes.json so inference always has the correct class order
+            (MODEL_OUT / "classes.json").write_text(json.dumps(classes))
+            print(f"  -> new best, saved to {MODEL_OUT/'notesure_best.pt'} + classes.json")
 
     writer.close()
     print(f"\nTraining done. Best val acc: {best_acc:.4f}")

@@ -81,13 +81,70 @@ def serial_font_shift(img):
 
 
 def print_quality_shift(img):
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(np.float32)
-    hsv[..., 1] *= random.uniform(0.6, 1.5)   # saturation
-    hsv[..., 2] *= random.uniform(0.75, 1.2)  # brightness
-    hsv = np.clip(hsv, 0, 255).astype(np.uint8)
-    out = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR).astype(np.float32)
-    contrast = random.uniform(0.8, 1.3)
-    out = np.clip((out - 127) * contrast + 127, 0, 255).astype(np.uint8)
+    """Simulate actual offset-printing defects — NOT generic camera variation.
+
+    Randomly applies 1-2 of the following per image:
+      • Halftone dot overlay — simulates visible dot matrix from low-DPI printing
+      • Color channel mis-registration — shifts one color channel by a few pixels,
+        simulating a printing press alignment error
+      • Posterization — reduces color depth to simulate low-quality inkjet output
+      • Moiré pattern — overlays an interference pattern from scanning a printed copy
+    """
+    h, w = img.shape[:2]
+    out = img.copy()
+
+    effects = random.sample(
+        ["halftone", "misregistration", "posterize", "moire"],
+        k=random.randint(1, 2),
+    )
+
+    for effect in effects:
+        if effect == "halftone":
+            # Simulate visible halftone dots from low-DPI offset printing
+            dot_spacing = random.randint(3, 6)
+            dot_radius = max(1, dot_spacing // 3)
+            # Vectorized: create one small tile and repeat it (~100x faster
+            # than the naive per-pixel cv2.circle loop)
+            tile = np.zeros((dot_spacing, dot_spacing), dtype=np.uint8)
+            cv2.circle(tile, (dot_spacing // 2, dot_spacing // 2),
+                       dot_radius, 255, -1)
+            reps_y = (h + dot_spacing - 1) // dot_spacing
+            reps_x = (w + dot_spacing - 1) // dot_spacing
+            mask = np.tile(tile, (reps_y, reps_x))[:h, :w]
+            # Blend: darken where there are no dots (ink-free areas)
+            darkened = (out.astype(np.float32) * 0.7).astype(np.uint8)
+            mask_3ch = cv2.merge([mask, mask, mask])
+            out = np.where(mask_3ch > 0, out, darkened)
+
+        elif effect == "misregistration":
+            # Shift one color channel by a few pixels — printing press misalignment
+            channel = random.randint(0, 2)
+            dx = random.choice([-3, -2, 2, 3])
+            dy = random.choice([-2, -1, 1, 2])
+            M = np.float32([[1, 0, dx], [0, 1, dy]])
+            shifted = cv2.warpAffine(out[:, :, channel], M, (w, h),
+                                     borderMode=cv2.BORDER_REPLICATE)
+            out[:, :, channel] = shifted
+
+        elif effect == "posterize":
+            # Reduce color depth to simulate low-quality inkjet/laser output
+            levels = random.choice([4, 6, 8])
+            factor = 256.0 / levels
+            out = (np.floor(out.astype(np.float32) / factor) * factor).astype(np.uint8)
+
+        elif effect == "moire":
+            # Overlay a sinusoidal interference pattern (scan-of-a-print artifact)
+            freq = random.uniform(0.05, 0.15)
+            angle = random.uniform(0, np.pi)
+            xs = np.arange(w)
+            ys = np.arange(h)
+            xv, yv = np.meshgrid(xs, ys)
+            pattern = np.sin(2 * np.pi * freq * (xv * np.cos(angle) + yv * np.sin(angle)))
+            # Scale pattern to a subtle intensity modulation
+            amplitude = random.uniform(15, 35)
+            pattern = (pattern * amplitude).astype(np.float32)
+            out = np.clip(out.astype(np.float32) + pattern[..., None], 0, 255).astype(np.uint8)
+
     return out
 
 
